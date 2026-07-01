@@ -1,4 +1,8 @@
+from datetime import date, datetime, time
+
 import streamlit as st
+
+from pawpal_system import Owner, Pet, Priority, Scheduler, Task, TaskCategory
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -38,51 +42,122 @@ At minimum, your system should:
 
 st.divider()
 
-st.subheader("Quick Demo Inputs (UI only)")
+st.subheader("Owner")
 owner_name = st.text_input("Owner name", value="Jordan")
-pet_name = st.text_input("Pet name", value="Mochi")
-species = st.selectbox("Species", ["dog", "cat", "other"])
 
-st.markdown("### Tasks")
-st.caption("Add a few tasks. In your final version, these should feed into your scheduler.")
+# Streamlit reruns this entire script top-to-bottom on every interaction
+# (button click, text edit, etc.). A plain `owner = Owner(...)` here would
+# recreate an empty Owner on every rerun. st.session_state is a dict-like
+# "vault" that persists across reruns for the same browser session, so we
+# only build the Owner the first time and reuse the same instance after that.
+if "owner" not in st.session_state:
+    st.session_state.owner = Owner(id=1, name=owner_name, email="")
+if "next_pet_id" not in st.session_state:
+    st.session_state.next_pet_id = 1
+if "next_task_id" not in st.session_state:
+    st.session_state.next_task_id = 1
 
-if "tasks" not in st.session_state:
-    st.session_state.tasks = []
+owner = st.session_state.owner
+owner.name = owner_name  # keep the stored Owner in sync with the widget
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    task_title = st.text_input("Task title", value="Morning walk")
-with col2:
-    duration = st.number_input("Duration (minutes)", min_value=1, max_value=240, value=20)
-with col3:
-    priority = st.selectbox("Priority", ["low", "medium", "high"], index=2)
+st.divider()
 
-if st.button("Add task"):
-    st.session_state.tasks.append(
-        {"title": task_title, "duration_minutes": int(duration), "priority": priority}
-    )
+st.markdown("### Add a Pet")
+pet_col1, pet_col2 = st.columns(2)
+with pet_col1:
+    pet_name = st.text_input("Pet name", value="Mochi")
+with pet_col2:
+    species = st.selectbox("Species", ["dog", "cat", "other"])
 
-if st.session_state.tasks:
-    st.write("Current tasks:")
-    st.table(st.session_state.tasks)
+if st.button("Add pet"):
+    # Owner.add_pet() is the Phase 2 method that owns this data: it appends
+    # the new Pet onto owner.pets, which is the same list object living in
+    # st.session_state.owner. The mutation happens in place, so nothing else
+    # needs to "save" it back into the vault.
+    new_pet = Pet(id=st.session_state.next_pet_id, name=pet_name, species=species)
+    owner.add_pet(new_pet)
+    st.session_state.next_pet_id += 1
+
+if owner.pets:
+    st.write("Current pets:")
+    st.table([{"name": p.name, "species": p.species} for p in owner.pets])
 else:
-    st.info("No tasks yet. Add one above.")
+    st.info("No pets yet. Add one above.")
+
+st.divider()
+
+st.markdown("### Schedule a Task")
+
+if not owner.pets:
+    st.info("Add a pet first before scheduling tasks.")
+else:
+    pet_names = [p.name for p in owner.pets]
+    selected_pet_name = st.selectbox("Pet", pet_names)
+    selected_pet = next(p for p in owner.pets if p.name == selected_pet_name)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        task_title = st.text_input("Task title", value="Morning walk")
+    with col2:
+        category = st.selectbox("Category", [c.value for c in TaskCategory])
+    with col3:
+        priority = st.selectbox("Priority", [p.value for p in Priority], index=2)
+
+    col4, col5 = st.columns(2)
+    with col4:
+        duration = st.number_input("Duration (minutes)", min_value=1, max_value=240, value=20)
+    with col5:
+        task_time = st.time_input("Scheduled time", value=time(8, 0))
+
+    if st.button("Add task"):
+        # Pet.add_task() is the Phase 2 method that owns this data: it
+        # appends the Task onto the selected pet's task list AND sets
+        # task.pet back to that pet, so the task stays traceable to its pet.
+        new_task = Task(
+            id=st.session_state.next_task_id,
+            description=task_title,
+            category=TaskCategory(category),
+            scheduled_time=datetime.combine(date.today(), task_time),
+            priority=Priority(priority),
+            duration_minutes=int(duration),
+        )
+        selected_pet.add_task(new_task)
+        st.session_state.next_task_id += 1
+
+    all_tasks = owner.get_all_tasks()
+    if all_tasks:
+        st.write("Current tasks:")
+        st.table(
+            [
+                {
+                    "pet": t.pet.name if t.pet else "",
+                    "title": t.description,
+                    "time": t.scheduled_time.strftime("%I:%M %p"),
+                    "priority": t.priority.value,
+                    "status": t.status.value,
+                }
+                for t in all_tasks
+            ]
+        )
+    else:
+        st.info("No tasks yet. Add one above.")
 
 st.divider()
 
 st.subheader("Build Schedule")
-st.caption("This button should call your scheduling logic once you implement it.")
+st.caption("Generates today's plan across all pets, sorted by priority.")
 
 if st.button("Generate schedule"):
-    st.warning(
-        "Not implemented yet. Next step: create your scheduling logic (classes/functions) and call it here."
-    )
-    st.markdown(
-        """
-Suggested approach:
-1. Design your UML (draft).
-2. Create class stubs (no logic).
-3. Implement scheduling behavior.
-4. Connect your scheduler here and display results.
-"""
-    )
+    # Scheduler.get_tasks_for_day() is the Phase 2 method that owns this:
+    # it reads owner.get_all_tasks(), filters to today, and sorts by priority.
+    scheduler = Scheduler()
+    todays_tasks = scheduler.get_tasks_for_day(owner, date.today())
+
+    if not todays_tasks:
+        st.info("No tasks scheduled for today.")
+    else:
+        st.write("### Today's Schedule")
+        for task in todays_tasks:
+            pet_label = task.pet.name if task.pet else "Unknown pet"
+            time_str = task.scheduled_time.strftime("%I:%M %p")
+            st.write(f"**{time_str}** — {pet_label}: {task.description} _({task.priority.value})_")

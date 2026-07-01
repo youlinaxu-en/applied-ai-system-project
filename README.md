@@ -10,13 +10,13 @@ A busy pet owner needs help staying consistent with pet care. They want an assis
     Action added: Walks, Feeding, Meds, Enrichment, Grooming, Cleaning, Behavior Record, Health Check.
 
 - Consider constraints (time available, priority, owner preferences)
-    Time Task: Time available: Need to note if there is confliction with exsited plans
-               Priority: Need to order any exsisted plan and highlight the essential one, also can alarm the owner when the owner not click "Done"(Done, Pending are two available buttons for owner to react) while the time is due.
-               Owner Preference: Need to know what kind of pet the owner is feeding, and remind pets owner if there is any needed check for pets. Like some pets may have congenital disease, so it will be necessary for owner to do check or feed their pets specific medicine on time. 
-               Category detail: May allow ownerto breeding their pets, like you can enter the page of this owner and it will show how older this pet it is, and note category, male/female, sterilization or not, the character of pets. Works like instagram, but just picture and word allowed. Other user can view the page and leave reaction to pets.
+    The system should detect conflicts with existing plans and reschedule flexible tasks when possible.
+    If a task is not marked as Done before the due time, the system should keep it as Pending or mark it as Overdue and send a reminder to the owner.
+    The system should consider each pet's species, breed, age, health conditions, medication schedule, and special care requirements.
+    Each pet may have a profile page containing photos, descriptions, breed information, age, gender, sterilization status, personality, and public reactions from other users.
                
 - Produce a daily plan and explain why it chose that plan
-
+    Generate daily care plans based on owner availability, task priority, pet health needs, and owner preferences. This will help owner take control of their pets, especially when owner is not at home.
 
 Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
 
@@ -61,7 +61,10 @@ Paste a sample of your app's CLI or Streamlit output here so a reader can see wh
 #   09:00 — Feeding (10 min) [priority: high]
 #   ...
 ```
-
+=== Today's Schedule ===
+07:00 AM - Biscuit: Give medication [critical]
+06:30 PM - Mochi: Evening feeding [high]
+08:00 AM - Biscuit: Morning walk [medium]
 ## 🧪 Testing PawPal+
 
 ```bash

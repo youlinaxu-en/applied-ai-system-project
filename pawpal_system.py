@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import date, datetime, timedelta
 from enum import Enum
 
 
@@ -27,6 +27,12 @@ class Priority(Enum):
     CRITICAL = "critical"
 
 
+class Frequency(Enum):
+    ONCE = "once"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
 class TaskStatus(Enum):
     PENDING = "pending"
     DONE = "done"
@@ -34,31 +40,55 @@ class TaskStatus(Enum):
     MISSED = "missed"
 
 
+_PRIORITY_ORDER = {
+    Priority.CRITICAL: 0,
+    Priority.HIGH: 1,
+    Priority.MEDIUM: 2,
+    Priority.LOW: 3,
+}
+
+
 # ---------------------------------------------------------------------------
-# Data classes
+# Core classes
 # ---------------------------------------------------------------------------
 
 @dataclass
-class Owner:
-    id:int
-    name: str
-    email: str
-    preferences: list = field(default_factory=list)
-    pets: list = field(default_factory=list)
-    availability_slots: list = field(default_factory=list)
-    daily_plans: list = field(default_factory=list)
+class Task:
+    id: int
+    description: str
+    category: TaskCategory
+    scheduled_time: datetime
+    priority: Priority
+    frequency: Frequency = Frequency.ONCE
+    duration_minutes: int = 15
+    status: TaskStatus = TaskStatus.PENDING
+    pet: "Pet | None" = None
 
-    def create_profile(self):
-        pass
+    def mark_done(self) -> None:
+        self.status = TaskStatus.DONE
 
-    def edit_profile(self):
-        pass
+    def mark_pending(self) -> None:
+        self.status = TaskStatus.PENDING
 
-    def add_pet(self, pet):
-        pass
+    def is_overdue(self, now: datetime) -> bool:
+        return self.status != TaskStatus.DONE and now > self.scheduled_time
 
-    def update_preferences(self, preferences):
-        pass
+    def refresh_status(self, now: datetime) -> TaskStatus:
+        if self.status != TaskStatus.DONE and now > self.scheduled_time:
+            self.status = TaskStatus.OVERDUE
+        return self.status
+
+    def reschedule(self, new_time: datetime) -> None:
+        self.scheduled_time = new_time
+        if self.status != TaskStatus.DONE:
+            self.status = TaskStatus.PENDING
+
+    def next_occurrence(self) -> "datetime | None":
+        if self.frequency == Frequency.DAILY:
+            return self.scheduled_time + timedelta(days=1)
+        if self.frequency == Frequency.WEEKLY:
+            return self.scheduled_time + timedelta(weeks=1)
+        return None
 
 
 @dataclass
@@ -66,131 +96,76 @@ class Pet:
     id: int
     name: str
     species: str
-    breed: str
-    age: int
-    gender: str
-    health_notes: str
-    care_tasks: list = field(default_factory=list)
+    breed: str = ""
+    age: int = 0
+    gender: str = ""
+    health_notes: str = ""
+    tasks: list = field(default_factory=list)
 
-    def create_profile(self):
-        pass
+    def add_task(self, task: Task) -> None:
+        task.pet = self
+        self.tasks.append(task)
 
-    def edit_profile(self):
-        pass
+    def remove_task(self, task_id: int) -> None:
+        self.tasks = [t for t in self.tasks if t.id != task_id]
 
+    def get_tasks(self) -> list:
+        return list(self.tasks)
 
-@dataclass
-class CareTask:
-    id: int
-    title: str
-    category: TaskCategory
-    duration_minutes: int
-    priority: Priority
-    preferred_time_window: str
-    status: TaskStatus
-    reminders: list = field(default_factory=list)
-
-    def update_duration(self, minutes):
-        pass
-
-    def update_priority(self, priority):
-        pass
-
-    def mark_done(self):
-        pass
-
-    def mark_pending(self):
-        pass
+    def get_tasks_by_status(self, status: TaskStatus) -> list:
+        return [t for t in self.tasks if t.status == status]
 
 
 @dataclass
-class AvailabilitySlot:
+class Owner:
     id: int
-    start_time: datetime
-    end_time: datetime
-    available: bool
-    note: str
+    name: str
+    email: str
+    pets: list = field(default_factory=list)
 
-    def update_availability(self, start_time, end_time, available):
-        pass
+    def add_pet(self, pet: Pet) -> None:
+        self.pets.append(pet)
 
+    def remove_pet(self, pet_id: int) -> None:
+        self.pets = [p for p in self.pets if p.id != pet_id]
 
-@dataclass
-class ScheduledTask:
-    id: int
-    care_task: CareTask
-    scheduled_start: datetime
-    scheduled_end: datetime
-    reason: str
+    def get_pet(self, pet_id: int) -> "Pet | None":
+        return next((p for p in self.pets if p.id == pet_id), None)
 
-    def display_summary(self):
-        pass
+    def get_all_tasks(self) -> list:
+        return [task for pet in self.pets for task in pet.tasks]
 
 
-@dataclass
-class DailyPlan:
-    id: int
-    plan_date: date
-    scheduled_tasks: list = field(default_factory=list)
-    explanation: str = ""
+class Scheduler:
+    """The "brain": retrieves, organizes, and manages tasks across pets."""
 
-    def get_tasks(self):
-        pass
+    def get_all_tasks(self, owner: Owner) -> list:
+        return owner.get_all_tasks()
 
-    def show_plan(self):
-        pass
+    def organize_by_pet(self, owner: Owner) -> dict:
+        return {pet.id: pet.get_tasks() for pet in owner.pets}
 
-    def show_explanation(self):
-        pass
+    def sort_by_priority(self, tasks: list) -> list:
+        return sorted(tasks, key=lambda t: (_PRIORITY_ORDER[t.priority], t.scheduled_time))
 
+    def get_tasks_for_day(self, owner: Owner, day: date) -> list:
+        tasks = [t for t in owner.get_all_tasks() if t.scheduled_time.date() == day]
+        return self.sort_by_priority(tasks)
 
-@dataclass
-class Reminder:
-    id: int
-    reminder_time: datetime
-    message: str
-    sent: bool = False
+    def refresh_all_statuses(self, owner: Owner, now: datetime) -> None:
+        for task in owner.get_all_tasks():
+            task.refresh_status(now)
 
-    def send(self):
-        pass
+    def get_overdue_tasks(self, owner: Owner, now: datetime) -> list:
+        self.refresh_all_statuses(owner, now)
+        return [t for t in owner.get_all_tasks() if t.status == TaskStatus.OVERDUE]
 
-    def reschedule(self, new_time):
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Service classes
-# ---------------------------------------------------------------------------
-
-class TaskService:
-    def add_task(self, pet, task):
-        pass
-
-    def edit_task(self, task_id, updated_task):
-        pass
-
-    def delete_task(self, task_id):
-        pass
-
-    def get_tasks_by_pet(self, pet):
-        pass
-
-
-class CarePlanService:
-    def generate_plan(self, owner, pets, tasks, availability):
-        pass
-
-    def detect_conflict(self, task, scheduled_tasks):
-        pass
-
-    def sort_by_priority(self, tasks):
-        pass
-
-    def fit_tasks_into_availability(self, tasks, availability):
-        pass
-
-    def explain_plan(self, plan):
-        pass
+    def mark_task_done(self, owner: Owner, task_id: int) -> "Task | None":
+        for task in owner.get_all_tasks():
+            if task.id == task_id:
+                task.mark_done()
+                return task
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -198,17 +173,17 @@ class CarePlanService:
 # ---------------------------------------------------------------------------
 
 class SchedulingTest:
-    def test_high_priority_task_scheduled_first(self):
+    def test_high_priority_task_sorted_first(self):
         pass
 
-    def test_task_fits_within_availability(self):
+    def test_overdue_task_detected(self):
         pass
 
-    def test_conflict_detection(self):
+    def test_tasks_grouped_by_pet(self):
         pass
 
-    def test_unavailable_time_rejected(self):
+    def test_mark_task_done_updates_status(self):
         pass
 
-    def test_plan_explanation_generated(self):
+    def test_daily_plan_filters_by_date(self):
         pass
